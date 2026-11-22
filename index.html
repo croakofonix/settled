@@ -224,6 +224,11 @@ p{margin:0}
 .heat div{padding:10px;border-radius:10px;border:1px solid var(--line);display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:600;min-width:0}
 .heat div b{font-family:var(--display);font-size:1.15rem}
 .chart svg{width:100%;height:auto;display:block}
+.mine-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.mine-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
+.mine-row:first-child{border-top:0;padding-top:0}
+.card2-box{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.85em;background:var(--card2);padding:1px 4px;border-radius:5px}
 textarea{width:100%;min-height:90px;border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:10px;font-size:.8rem;font-family:ui-monospace,Menlo,monospace;resize:vertical}
 input[type=date]{border:1px solid var(--line);background:var(--card2);border-radius:10px;padding:9px 10px;min-height:44px}
 .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0}
@@ -1244,10 +1249,46 @@ function hash(s){ let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCode
 // ---------- data model ----------
 const TOPICS = {}, ORDER = [], CH = {};
 C.chapters.forEach(ch => { CH[ch.id]=ch; ch.topics.forEach(t => { TOPICS[t.id] = Object.assign({ch:ch.id, color:ch.color, chn:ch.n}, t); ORDER.push(t.id); }); });
-const QS = RAW.map(r => {
-  if (typeof r[2] === "boolean") return {id:hash(r[1]), t:r[0], q:r[1], opts:["True","False"], correct:[r[2]?0:1], tf:true, e:r[3]};
-  return {id:hash(r[1]), t:r[0], q:r[1], opts:r[2], correct:Array.from({length:r[3]},(_,i)=>i), tf:false, e:r[4]};
-});
+// ---------- your own material (uploaded on this device) ----------
+const XKEY = "settled.extra.v1";
+function loadExtra(){ try { const s = localStorage.getItem(XKEY); if (s) { const o = JSON.parse(s); if (o && Array.isArray(o.sets)) return o; } } catch(e){} return {sets:[]}; }
+function saveExtra(x){ try { localStorage.setItem(XKEY, JSON.stringify(x)); return true; } catch(e){ return false; } }
+const EXTRA = loadExtra();
+// keyword index for placing uploaded items in the right topic
+const STOP = new Set("about above after again against also because been before being below between both could does doing during each from further have having here into itself just more most other over same should some such than that their them then there these they this those through under until very what when where which while whom will with would your yours year years people british britain united kingdom which".split(" "));
+const words = s => (String(s).toLowerCase().match(/[a-z][a-z'-]{3,}/g)||[]).filter(w=>!STOP.has(w));
+const TWORDS = {}, DF = {};
+C.chapters.forEach(ch => ch.topics.forEach(t => { const set = new Set(words(t.title+" "+t.title+" "+t.notes.join(" "))); TWORDS[t.id]=set; set.forEach(w=>DF[w]=(DF[w]||0)+1); }));
+function guessTopic(text, chId){
+  let best=null, bs=0;
+  C.chapters.forEach(ch => { if (chId && ch.id!==chId) return; ch.topics.forEach(t => { let sc=0; new Set(words(text)).forEach(w=>{ if (TWORDS[t.id].has(w)) sc += 1/DF[w]; }); if (sc>bs){bs=sc;best=t.id;} }); });
+  return best || (chId ? CH[chId].topics[0].id : "values");
+}
+function resolveTopic(topic, chapter, text){
+  const tl = String(topic||"").trim().toLowerCase();
+  if (tl) {
+    if (TOPICS[tl]) return tl;
+    const exact = ORDER.find(id=>TOPICS[id].title.toLowerCase()===tl); if (exact) return exact;
+    const part = ORDER.find(id=>TOPICS[id].title.toLowerCase().includes(tl) || tl.includes(TOPICS[id].title.toLowerCase())); if (part) return part;
+  }
+  const cs = String(chapter||"").trim().toLowerCase().replace(/^chapter\s*/,"");
+  let chId = null;
+  if (/^c?[1-5]$/.test(cs)) chId = "c"+cs.replace("c","");
+  else if (cs) { const m = C.chapters.find(ch=>ch.title.toLowerCase().includes(cs)||ch.long.toLowerCase().includes(cs)); if (m) chId=m.id; }
+  return guessTopic((topic||"")+" "+text, chId);
+}
+// added notes go at the end of their topic, marked so you can tell them apart
+EXTRA.sets.forEach(set => (set.notes||[]).forEach(n => { const t = TOPICS[n.t]; if (t) t.notes.push("📎 "+n.text); }));
+const XRAW = [];
+EXTRA.sets.forEach(set => (set.qs||[]).forEach(r => { if (TOPICS[r[0]]) XRAW.push(r.concat([set.name])); }));
+const toQ = (r, src) => {
+  if (typeof r[2] === "boolean") return {id:hash(r[1]), t:r[0], q:r[1], opts:["True","False"], correct:[r[2]?0:1], tf:true, e:r[3]||"", src};
+  return {id:hash(r[1]), t:r[0], q:r[1], opts:r[2], correct:Array.from({length:r[3]},(_,i)=>i), tf:false, e:r[4]||"", src};
+};
+const QS = RAW.map(r => toQ(r, null));
+const BUILTIN = new Set(QS.map(q=>q.id));
+XRAW.forEach(r => { const q = toQ(r.slice(0,-1), r[r.length-1]); if (!BUILTIN.has(q.id) && !QS.some(x=>x.id===q.id)) QS.push(q); });
+const MINE = QS.length - RAW.length;
 const QBY = {}; QS.forEach(q => QBY[q.id]=q);
 const QBT = {}; QS.forEach(q => (QBT[q.t]=QBT[q.t]||[]).push(q));
 
@@ -1491,6 +1532,7 @@ function vPlan(){
 function ring(p, color){ const r=17, c=2*Math.PI*r; return `<svg class="ring" viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="${r}" fill="none" stroke="var(--line)" stroke-width="5"/><circle cx="21" cy="21" r="${r}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c*p} ${c}" transform="rotate(-90 21 21)"/></svg>`; }
 function vLearn(){
   if (sub && sub.facts) return vFacts();
+  if (sub && sub.mine) return vMine();
   if (sub && sub.topic) return vTopic(sub.topic);
   if (sub && sub.ch) return vChapter(sub.ch);
   const chs = C.chapters.map(ch => {
@@ -1502,7 +1544,111 @@ function vLearn(){
   return `<section style="display:flex;flex-direction:column;gap:6px"><p class="eyebrow">The handbook, condensed</p><h1>Study notes</h1>
   <p class="muted">Short notes for every section of <em>Life in the United Kingdom: A Guide for New Residents</em> (3rd edition), written for this app. Notes marked ⚠️ flag facts that have changed since the 2013 handbook.</p></section>
   <div style="display:flex;flex-direction:column;gap:10px">${chs}</div>
-  <button class="chapter" data-act="facts"><span class="chno" style="background:var(--ink);color:var(--paper)">i</span><span><span class="eyebrow">Before you book</span><br><b>About the test</b></span><span></span></button>`;
+  <button class="chapter" data-act="facts"><span class="chno" style="background:var(--ink);color:var(--paper)">i</span><span><span class="eyebrow">Before you book</span><br><b>About the test & sources</b></span><span></span></button>
+  <button class="chapter" data-act="mine"><span class="chno" style="background:var(--gold);color:#1a1300">+</span><span><span class="eyebrow">Add your own material</span><br><b>Upload notes or questions</b><br><span class="muted" style="font-size:.8rem">${EXTRA.sets.length?`${MINE} question${MINE===1?"":"s"} and ${EXTRA.sets.reduce((a,x)=>a+(x.notes||[]).length,0)} notes added`:"CSV, JSON or plain text"}</span></span><span></span></button>`;
+}
+
+// ---------- ADD YOUR OWN MATERIAL ----------
+const TEMPLATE = `type,chapter,topic,text,correct,wrong1,wrong2,wrong3,explanation
+question,3,,In which year did the Battle of Hastings take place?,1066,1066 BC,1215,1314,William of Normandy defeated King Harold at Hastings in 1066.
+question,5,,Which TWO are ways to take part in your community?,Volunteering | Jury service,Ignoring local elections,Avoiding neighbours,,"Use | between answers when two are correct."
+question,2,,The UK is made up of England and Scotland only.,False,,,,"True/false: put True or False as the correct answer and leave the wrong columns empty."
+note,4,Sport,"Wimbledon is the oldest tennis tournament in the world.",,,,,
+`;
+function splitCSV(text){
+  const rows=[]; let row=[], f="", q=false;
+  for (let i=0;i<text.length;i++){ const c=text[i];
+    if (q){ if (c==='"'){ if (text[i+1]==='"'){f+='"';i++;} else q=false; } else f+=c; }
+    else if (c==='"') q=true; else if (c===','||c==='\t'){ row.push(f); f=""; }
+    else if (c==='\n'||c==='\r'){ if (c==='\r'&&text[i+1]==='\n') i++; row.push(f); rows.push(row); row=[]; f=""; }
+    else f+=c; }
+  if (f||row.length){ row.push(f); rows.push(row); }
+  return rows.map(r=>r.map(x=>x.trim())).filter(r=>r.some(x=>x));
+}
+function mkQ(o, errs, n){
+  const text = String(o.question||o.text||o.q||"").trim(); if (!text){ errs.push(`Item ${n}: no question text`); return null; }
+  let correct = o.correct ?? o.answer ?? o.answers;
+  const t = resolveTopic(o.topic, o.chapter, text);
+  const expl = String(o.explanation||o.explain||o.e||"").trim();
+  if (typeof correct==="boolean") return [t, text, correct, expl];
+  if (typeof correct==="string") { const tf = correct.trim().toLowerCase(); const wrongs0 = [].concat(o.wrong||o.wrongs||[]).filter(Boolean);
+    if ((tf==="true"||tf==="false") && !wrongs0.length) return [t, text, tf==="true", expl];
+    correct = correct.split("|"); }
+  correct = [].concat(correct||[]).map(x=>String(x).trim()).filter(Boolean);
+  const wrong = [].concat(o.wrong||o.wrongs||[]).map(x=>String(x).trim()).filter(Boolean);
+  if (!correct.length){ errs.push(`Item ${n}: no correct answer`); return null; }
+  if (correct.length>2){ errs.push(`Item ${n}: more than two correct answers`); return null; }
+  if (!wrong.length){ errs.push(`Item ${n}: needs at least one wrong answer (or use True/False)`); return null; }
+  return [t, text, correct.concat(wrong).slice(0,6), correct.length, expl];
+}
+function parseMaterial(text, name){
+  const out = {qs:[], notes:[], errs:[]};
+  const src = String(text||"").replace(/^\uFEFF/,"").trim(); if (!src) { out.errs.push("The file is empty."); return out; }
+  const addNote = (txt, topic, chapter) => { txt=String(txt||"").trim(); if (txt.length<12) return; out.notes.push({t:resolveTopic(topic, chapter, txt), text:txt}); };
+  if (/^[\[{]/.test(src)) {
+    let j; try { j = JSON.parse(src); } catch(e){ out.errs.push("That looks like JSON but it couldn't be read: "+e.message); return out; }
+    const qs = Array.isArray(j) ? j : (j.questions||[]); const notes = Array.isArray(j) ? [] : (j.notes||[]);
+    qs.forEach((o,i) => { if (Array.isArray(o)) { if (o.length>=4 && (typeof o[2]==="boolean"||Array.isArray(o[2]))) { o=o.slice(); o[0]=resolveTopic(o[0],"",o[1]); out.qs.push(o); } else out.errs.push(`Item ${i+1}: unknown format`); return; }
+      if (o && (o.type==="note" || (o.note && !o.question))) return addNote(o.note||o.text, o.topic, o.chapter);
+      const r = mkQ(o||{}, out.errs, i+1); if (r) out.qs.push(r); });
+    notes.forEach(o => typeof o==="string" ? addNote(o) : addNote(o.text||o.note, o.topic, o.chapter));
+    return out;
+  }
+  const rows = splitCSV(src);
+  const head = (rows[0]||[]).map(h=>h.toLowerCase());
+  const looksCSV = head.some(h=>/^(question|text|correct|answer|type)$/.test(h)) && rows.length>1;
+  if (looksCSV) {
+    const col = k => head.findIndex(h=>h===k || h.startsWith(k));
+    const ci = {type:col("type"), chapter:col("chapter"), topic:col("topic"), text:head.findIndex(h=>/^(text|question|note)/.test(h)), correct:head.findIndex(h=>/^(correct|answer)/.test(h)), expl:col("explan")};
+    const wrongCols = head.map((h,i)=>/^(wrong|incorrect|option|distractor)/.test(h)?i:-1).filter(i=>i>=0);
+    rows.slice(1).forEach((r,i) => { const g = k => ci[k]>=0 ? (r[ci[k]]||"") : "";
+      const type = g("type").toLowerCase();
+      if (type==="note" || (!g("correct") && !wrongCols.some(w=>r[w]))) return addNote(g("text"), g("topic"), g("chapter"));
+      const q = mkQ({question:g("text"), correct:g("correct"), wrong:wrongCols.map(w=>r[w]||""), topic:g("topic"), chapter:g("chapter"), explanation:g("expl")}, out.errs, i+2);
+      if (q) out.qs.push(q); });
+    return out;
+  }
+  // plain text or markdown: each paragraph becomes a note in the best matching topic
+  src.split(/\n\s*\n|\n(?=[-*•]\s)/).map(p=>p.replace(/^[-*•#\s]+/,"").replace(/\s+/g," ").trim()).forEach(p => {
+    if (p.length>700) p.split(/(?<=[.!?])\s+(?=[A-Z])/).reduce((acc,sn)=>{ if ((acc[acc.length-1]||"").length+sn.length<400 && acc.length) acc[acc.length-1]+=" "+sn; else acc.push(sn); return acc; },[]).forEach(x=>addNote(x));
+    else addNote(p);
+  });
+  if (!out.notes.length) out.errs.push("No usable text found.");
+  return out;
+}
+function vMine(){
+  const pv = sub && sub.preview;
+  const sets = EXTRA.sets.map((x,i)=>`<li class="mine-row"><span><b>${esc(x.name)}</b><br><span class="muted" style="font-size:.8rem">${x.qs.length} question${x.qs.length===1?"":"s"} · ${(x.notes||[]).length} note${(x.notes||[]).length===1?"":"s"} · added ${esc(fmtDate(x.date,{day:"numeric",month:"short"}))}</span></span>${sub&&sub.del===i?`<span class="row"><button class="btn small red" data-act="minedelok" data-i="${i}">Remove</button><button class="btn small" data-act="mine">Keep</button></span>`:`<button class="btn small ghost" data-act="minedel" data-i="${i}">Remove</button>`}</li>`).join("");
+  const byTopic = pv ? Object.entries([...pv.qs.map(r=>r[0]), ...pv.notes.map(n=>n.t)].reduce((a,t)=>(a[t]=(a[t]||0)+1,a),{})).sort((a,b)=>b[1]-a[1]) : [];
+  return `<button class="back" data-go="learn">${I.left} Study notes</button>
+  <section style="display:flex;flex-direction:column;gap:6px"><p class="eyebrow">Saved on this device</p><h1>Add your own material</h1>
+  <p class="muted">Upload practice questions or study notes from anywhere. They join the right topic, show up in quizzes, flashcards and mock exams, and work offline.</p></section>
+  ${pv?`<section class="card" style="border-color:var(--gold)"><h3>Check before adding: ${esc(pv.name)}</h3>
+    <p><b>${pv.qs.length}</b> question${pv.qs.length===1?"":"s"} and <b>${pv.notes.length}</b> note${pv.notes.length===1?"":"s"} found${pv.dupes?`, ${pv.dupes} already in the app and skipped`:""}.</p>
+    ${byTopic.length?`<p class="muted" style="font-size:.85rem">Going into: ${byTopic.slice(0,6).map(([t,n])=>`${esc(TOPICS[t].title)} (${n})`).join(", ")}${byTopic.length>6?` and ${byTopic.length-6} more topics`:""}</p>`:""}
+    ${pv.qs[0]?`<div class="card2-box"><span class="eyebrow">Sample question</span><br><b>${esc(pv.qs[0][1])}</b><br><span class="muted" style="font-size:.85rem">Answer: ${typeof pv.qs[0][2]==="boolean"?(pv.qs[0][2]?"True":"False"):pv.qs[0][2].slice(0,pv.qs[0][3]).map(esc).join(" and ")}</span></div>`:""}
+    ${pv.errs.length?`<details><summary class="muted" style="font-size:.85rem">${pv.errs.length} row${pv.errs.length===1?"":"s"} skipped</summary><ul class="notes" style="font-size:.8rem">${pv.errs.slice(0,30).map(e=>`<li>${esc(e)}</li>`).join("")}</ul></details>`:""}
+    <div class="row">${pv.qs.length||pv.notes.length?`<button class="btn primary" data-act="minesave">Add to my app</button>`:""}<button class="btn" data-act="mine">Cancel</button></div></section>`:""}
+  <section class="card"><h3>Upload a file</h3>
+    <p class="muted" style="font-size:.85rem">CSV or spreadsheet export for questions, JSON, or a plain text file for notes. On iPad you can pick from Files, iCloud Drive or Google Drive.</p>
+    <label class="btn primary" style="align-self:flex-start;cursor:pointer">Choose file<input type="file" id="mineFile" accept=".csv,.tsv,.json,.txt,.md,text/plain,text/csv,application/json" hidden></label>
+    <label for="mineText" style="font-weight:600;font-size:.9rem">Or paste text</label>
+    <textarea id="mineText" placeholder="Paste CSV rows, JSON, or study notes"></textarea>
+    <div class="row"><button class="btn small" data-act="minepaste">Check pasted text</button></div></section>
+  <section class="card"><h3>File format</h3>
+    <p class="muted" style="font-size:.85rem"><b>Questions (CSV):</b> one row each, with columns <code>type, chapter, topic, text, correct, wrong1, wrong2, wrong3, explanation</code>. Put <code>A | B</code> in the correct column for pick-two questions, or <code>True</code>/<code>False</code> with no wrong answers for true/false. Chapter (1 to 5) and topic are optional: the app matches each question to the closest topic by its wording.</p>
+    <p class="muted" style="font-size:.85rem"><b>Notes:</b> a row with type <code>note</code>, or any plain text file, where each paragraph becomes a note marked 📎.</p>
+    <div class="row"><button class="btn small" data-act="minetemplate">Download template</button></div></section>
+  <section class="card"><h3>Added so far</h3>${sets?`<ul class="mine-list">${sets}</ul>`:`<p class="empty">Nothing added yet.</p>`}</section>
+  <p class="muted" style="font-size:.78rem">Only add material you have the right to use. Check answers from unofficial sites against the handbook: some are out of date or wrong.</p>`;
+}
+function previewMaterial(text, name){
+  const r = parseMaterial(text, name);
+  const have = new Set(QS.map(q=>q.id)); const seen = new Set(); let dupes = 0;
+  r.qs = r.qs.filter(q=>{ const id=hash(q[1]); if (have.has(id)||seen.has(id)) { dupes++; return false; } seen.add(id); return true; });
+  const haveN = new Set(ORDER.flatMap(t=>TOPICS[t].notes.map(n=>n.replace(/^📎 /,""))));
+  r.notes = r.notes.filter(n=>!haveN.has(n.text));
+  sub = {mine:true, preview:Object.assign(r,{name, dupes})}; render(); window.scrollTo(0,0);
 }
 function vChapter(id){
   const ch = CH[id];
@@ -1540,6 +1686,13 @@ function vFacts(){
     <li>Pass and you get a <strong>unique reference number</strong> for your application. Fail and you can rebook straight away (£50 again).</li>
   </ul>
   <a class="btn" href="https://www.gov.uk/life-in-the-uk-test" target="_blank" rel="noopener">Open gov.uk</a></section>
+  <section class="card"><h3>Where this app's content comes from</h3>
+  <ul class="notes" style="font-size:.88rem">
+    <li><strong>Notes and the ${RAW.length} built-in questions</strong> were written for this app from the study guide PDF you supplied (an updated, unofficial edition of the handbook), with ⚠️ marking facts that differ from the official 2013 edition. No question was copied from a question bank or mock-test site.</li>
+    <li><strong>Test rules, fees and booking</strong> come from gov.uk (Life in the UK Test pages, checked ${esc(C.meta.verified)}).</li>
+    <li><strong>News on changes since 2013</strong> (no new handbook yet, possible reforms) came from Wikipedia and immigration-law and study sites, used only as background and not as answers.</li>
+    ${MINE?`<li><strong>${MINE} questions you added</strong> come from your own uploads, marked 📎.</li>`:""}
+  </ul></section>
   <section class="card"><h3>What the test covers</h3><p class="muted">Every question comes from the official handbook, including the introduction. These notes and questions were written for this app from that handbook; they are not the official question bank, and no one outside the Home Office has it. Treat practice scores as a guide.</p></section>`;
 }
 
@@ -1580,7 +1733,7 @@ function vQuiz(){
   }).join("");
   if (mock && !timerId) { timerId = setInterval(tick, 1000); }
   const answered = s.ans.filter(a=>a.length).length;
-  const feedback = checked ? (()=>{ const ok=isRight(q,sel); return `<div class="explain ${ok?"good":"bad"}"><b>${ok?"Correct.":"Not quite."}</b> ${!ok?`Answer: <b>${q.correct.map(x=>esc(q.opts[x])).join(" and ")}</b>. `:""}${esc(q.e)}</div>`; })() : "";
+  const feedback = checked ? (()=>{ const ok=isRight(q,sel); return `<div class="explain ${ok?"good":"bad"}"><b>${ok?"Correct.":"Not quite."}</b> ${!ok?`Answer: <b>${q.correct.map(x=>esc(q.opts[x])).join(" and ")}</b>. `:""}${esc(q.e)}${q.src?`<br><span class="muted" style="font-size:.78rem">📎 Your question, from ${esc(q.src)}</span>`:""}</div>`; })() : "";
   const t = TOPICS[q.t];
   let actions;
   if (mock){
@@ -1707,7 +1860,7 @@ function grade(g){
 // ---------- PRACTICE ----------
 function vPractice(){
   const w = weakTopics(4);
-  return `<section style="display:flex;flex-direction:column;gap:6px"><p class="eyebrow">${QS.length} original questions</p><h1>Practice</h1></section>
+  return `<section style="display:flex;flex-direction:column;gap:6px"><p class="eyebrow">${QS.length} questions${MINE?` · ${MINE} of them yours`:""}</p><h1>Practice</h1></section>
   <section class="hero" style="gap:10px">${routeSVG()}<p class="eyebrow">Exam conditions</p><h2>Mock exam</h2><p style="opacity:.8;max-width:34ch">24 questions across all five chapters, 45-minute timer, no feedback until you submit. Pass mark 18.</p><div><button class="btn red" data-act="mock">Start mock exam</button></div></section>
   <div class="grid2">
     <button class="qbtn" data-act="quick"><span style="color:var(--gold)">${I.bolt}</span><b>Quick 10</b><span>Answers shown as you go</span></button>
@@ -1805,11 +1958,24 @@ document.addEventListener("click", e => {
     case "export": { const code = btoa(unescape(encodeURIComponent(JSON.stringify(S)))); sub={code}; render(); const box=$("#exportBox"); box.hidden=false; box.select();
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(()=>toast("Copied. Paste it on your other device."),()=>toast("Select the code and copy it")); else toast("Select the code and copy it"); return; }
     case "import": { try { const raw = $("#importBox").value.trim(); const obj = JSON.parse(decodeURIComponent(escape(atob(raw)))); if(!obj||obj.v!==1) throw 0; S=Object.assign(blank(),obj); save(); deck=null; toast("Progress loaded"); return go("progress"); } catch(err){ toast("That code didn't work. Copy the whole code and try again."); } return; }
+    case "mine": return go("learn",{mine:true});
+    case "minepaste": { const t=$("#mineText").value; if (!t.trim()) return toast("Paste something first"); return previewMaterial(t, "Pasted "+fmtDate(todayISO(),{day:"numeric",month:"short"})); }
+    case "minesave": { const pv=sub.preview; const set={name:pv.name, date:todayISO(), qs:pv.qs, notes:pv.notes}; const x=loadExtra(); x.sets.push(set);
+      if (!saveExtra(x)) return toast("Couldn't save: this device is out of space for the app");
+      try { sessionStorage.setItem("settled.toast", `Added ${pv.qs.length} question${pv.qs.length===1?"":"s"} and ${pv.notes.length} note${pv.notes.length===1?"":"s"}`); } catch(e){}
+      location.hash="learn"; return location.reload(); }
+    case "minedel": sub={mine:true, del:+d.i}; return render();
+    case "minedelok": { const x=loadExtra(); x.sets.splice(+d.i,1); saveExtra(x); try { sessionStorage.setItem("settled.toast","Removed"); } catch(e){} location.hash="learn"; return location.reload(); }
+    case "minetemplate": { const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([TEMPLATE],{type:"text/csv"})); a.download="settled-template.csv"; document.body.appendChild(a); a.click(); a.remove(); return toast("Template downloaded"); }
     case "reset": sub={reset:true}; return render();
     case "resetok": S=blank(); save(); deck=null; session=null; toast("Progress erased"); return go("home");
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.id==="mineFile" && e.target.files && e.target.files[0]){ const f=e.target.files[0];
+    if (f.size > 3e6) return toast("That file is too big (3 MB max)");
+    if (/\.(pdf|docx?|xlsx?|pages|numbers)$/i.test(f.name)) return toast("Save it as CSV or plain text first");
+    f.text().then(t=>previewMaterial(t, f.name), ()=>toast("Couldn't read that file")); return; }
   if (e.target.id==="testDate" && e.target.value){ S.testDate=e.target.value; if (S.testDate<=S.start) S.start=todayISO(); save(); toast("Plan rebuilt for "+fmtDate(S.testDate)); render(); }
 });
 document.addEventListener("keydown", e => {
@@ -1827,7 +1993,10 @@ document.addEventListener("keydown", e => {
   save();
   const h = location.hash.slice(1);
   route = TABS.some(t=>t[0]===h) ? h : "home";
+  let msg = null; try { msg = sessionStorage.getItem("settled.toast"); sessionStorage.removeItem("settled.toast"); } catch(e){}
+  if (msg && route==="learn") sub={mine:true};
   render();
+  if (msg) toast(msg);
   if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}
 })();
 })();
