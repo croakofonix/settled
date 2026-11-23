@@ -190,15 +190,19 @@ body.immersive .dock{transform:translate(-50%,140%);opacity:0;pointer-events:non
 
 /* goal strip */
 .goal{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center}
-.goalring{width:76px;height:76px;position:relative;flex:none}
+.goalring{width:96px;height:96px;position:relative;flex:none}
+@media (max-width:400px){.goal{gap:12px}.goalring{width:84px;height:84px}.goalring b{inset:12px;font-size:1.2rem}.goal .gtitle{font-size:1rem!important}.goal .chip .dlabel{display:none}}
 .goalring svg{width:100%;height:100%;transform:rotate(-90deg)}
-.goalring b{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--display);font-weight:750;font-size:1.05rem;line-height:1;text-align:center}
-.goalring b small{display:block;font-family:var(--body);font-size:.56rem;font-weight:700;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-top:2px}
-.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:8px}
+.goalring b{position:absolute;inset:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--display);font-weight:750;font-size:1.35rem;line-height:1;text-align:center}
+.goalring b small{display:block;font-family:var(--body);font-size:.6rem;font-weight:700;letter-spacing:.04em;color:var(--muted);margin-top:4px;white-space:nowrap}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:10px}
 .week span{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.62rem;font-weight:700;color:var(--muted);letter-spacing:.04em}
 .week i{width:100%;max-width:30px;aspect-ratio:1;border-radius:9px;background:var(--card2);border:1px solid var(--line);display:grid;place-items:center}
 .week i.on{background:color-mix(in srgb,var(--red) 14%,var(--card));border-color:color-mix(in srgb,var(--red) 40%,transparent);color:var(--red)}
 .week i.today{outline:2px solid var(--ink);outline-offset:1px}
+.week span.future{opacity:.45}
+.daytopics{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.daytopics span{font-size:.75rem;font-weight:650;padding:3px 10px;border-radius:99px;background:color-mix(in srgb,var(--cc) 12%,transparent);color:var(--cc)}
 .week i svg{width:14px;height:14px}
 
 /* itinerary */
@@ -1753,7 +1757,7 @@ const TASKLABEL = {
   quick: () => ["Quick 10", "Mixed questions from everything"],
   facts: () => ["Test-day checklist", "Booking, ID, what happens"]
 };
-function dayTitle(d){ if(!d.topics.length) return KINDLABEL[d.kind]; const n=d.topics.map(x=>TOPICS[x].title); return KINDLABEL[d.kind]+": "+(n.length>2? n.slice(0,2).join(", ")+" +"+(n.length-2)+" more" : n.join(" & ")); }
+function dayTitle(d){ if(!d.topics.length) return KINDLABEL[d.kind]; const n=d.topics.map(x=>TOPICS[x].title); return KINDLABEL[d.kind]+": "+(n.length>2? n.slice(0,2).join(", ")+" and "+(n.length-2)+" more" : n.join(" & ")); }
 const KINDLABEL = {learn:"Study", review:"Review", mock:"Mock day", drill:"Drill", final:"Final review"};
 
 // ======================================================================
@@ -2094,13 +2098,14 @@ function vHome(){
   const name = S.prefs.name ? ", "+esc(S.prefs.name) : "";
   const due = dueCards().length;
   const txp = todayXP(), st = streak();
-  const days7 = Array.from({length:7},(_,i)=>addDays(t,i-6));
+  const monday = addDays(t, -((parseISO(t).getDay()+6)%7));
+  const days7 = Array.from({length:7},(_,i)=>addDays(monday,i));
   afterFns.push(()=>document.querySelectorAll("[data-dash]").forEach(el=>requestAnimationFrame(()=>requestAnimationFrame(()=>{ el.style.strokeDashoffset = el.dataset.dash; }))));
   let todayCard;
   if (today){
     const doneN = today.tasks.filter(tk=>taskDone(today,tk)).length;
     todayCard = `<section class="card raised" aria-labelledby="todayH">
-      <div class="spread"><div><p class="eyebrow">Today's itinerary · Day ${idx+1} of ${plan.length}</p><h2 id="todayH" style="margin-top:4px">${esc(dayTitle(today))}</h2></div>
+      <div class="spread"><div><p class="eyebrow">Today's itinerary · Day ${idx+1} of ${plan.length}</p><h2 id="todayH" style="margin-top:4px">${today.kind==="learn"&&today.topics.length>1?`Study ${today.topics.length} topics`:esc(dayTitle(today))}</h2>${today.topics.length>1?`<div class="daytopics">${today.topics.map(x=>`<span style="--c:${TOPICS[x].color}">${esc(TOPICS[x].title)}</span>`).join("")}</div>`:""}</div>
       ${dayDone(today)?'<span class="pill ok">Done</span>':`<span class="pill num">${doneN}/${today.tasks.length}</span>`}</div>
       <ul class="tasks">${today.tasks.map(tk=>taskHTML(today,tk)).join("")}</ul>
       ${missed?`<p class="muted" style="font-size:.85rem">${missed} earlier stop${missed>1?"s":""} still open. <button class="link" data-go="plan">Catch up on the route</button></p>`:""}
@@ -2126,9 +2131,9 @@ function vHome(){
   </section>
   ${installCard()}
   <section class="card raised goal">
-    <div class="goalring">${goalRing(txp/GOAL, txp>=GOAL?"var(--good)":"var(--gold)")}<b><span data-count="${txp}">0</span><small>/ ${GOAL} XP</small></b></div>
-    <div style="min-width:0"><div class="spread"><b style="font-family:var(--display);font-size:1.15rem">${txp>=GOAL?"Daily goal smashed":"Daily goal"}</b><span class="chip flame ${st?"on":""}" style="box-shadow:none">${I.flame.replace("<svg ","<svg width=\"14\" height=\"14\" ")} ${st} day${st===1?"":"s"}</span></div>
-      <div class="week" aria-label="Last 7 days">${days7.map(d=>`<span><i class="${S.days[d]?"on":""} ${d===t?"today":""}">${S.days[d]?I.flame.replace("<svg ","<svg width=\"14\" height=\"14\" "):""}</i>${fmtDate(d,{weekday:"narrow"})}</span>`).join("")}</div></div>
+    <div class="goalring">${goalRing(txp/GOAL, txp>=GOAL?"var(--good)":"var(--gold)")}<b><span data-count="${txp}">0</span><small>of ${GOAL} XP</small></b></div>
+    <div style="min-width:0"><div class="spread"><b class="gtitle" style="font-family:var(--display);font-size:1.15rem;white-space:nowrap">${txp>=GOAL?"Goal smashed":"Daily goal"}</b><span class="chip flame ${st?"on":""}" style="box-shadow:none">${I.flame.replace("<svg ","<svg width=\"14\" height=\"14\" ")} ${st}<span class="dlabel">day${st===1?"":"s"}</span></span></div>
+      <div class="week" aria-label="This week, Monday to Sunday">${days7.map(d=>`<span class="${d>t?"future":""}"><i class="${S.days[d]?"on":""} ${d===t?"today":""}">${S.days[d]?I.flame.replace("<svg ","<svg width=\"14\" height=\"14\" "):""}</i>${fmtDate(d,{weekday:"short"}).slice(0,2)}</span>`).join("")}</div></div>
   </section>
   ${todayCard}
   ${journeyMap()}
